@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# apptainer (wrapper)
+# Runs the official Apptainer container via Docker so `apptainer` works on macOS.
+#
+# This file is a TEMPLATE. The installer copies it to ~/.local/bin/apptainer and
+# replaces __APPT_VER__ with the pinned version. You can also run it directly by
+# setting APPT_VER in your environment (it falls back to the env var if the
+# placeholder was never substituted).
+#
+set -euo pipefail
+
+# Pinned by the installer; falls back to $APPT_VER, then a sane default.
+APPT_VER="__APPT_VER__"
+case "$APPT_VER" in
+  __APPT_VER__|"") APPT_VER="${APPT_VER_ENV:-${APPT_VER:-1.5.1}}" ;;
+esac
+IMAGE="ghcr.io/apptainer/apptainer:${APPT_VER}"
+
+# Require Docker CLI.
+command -v docker >/dev/null 2>&1 || {
+  echo "Docker CLI not found. Install Docker Desktop: https://www.docker.com/products/docker-desktop" >&2
+  exit 127
+}
+
+# TTY only when interactive.
+TTY_ARGS=()
+[ -t 0 ] && [ -t 1 ] && TTY_ARGS=(-it)
+
+# Mount the current working directory so host paths exist inside Docker.
+# Avoids 'no such file or directory' when Apptainer binds host paths.
+PWD_MOUNT=(-v "$PWD":"$PWD" -w "$PWD")
+
+# Force the entrypoint to apptainer so "$@" are treated as apptainer subcommands
+# (e.g. 'build', 'exec', 'run', 'pull'). --privileged is required to build images.
+exec docker run --rm "${TTY_ARGS[@]}" --privileged \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  "${PWD_MOUNT[@]}" \
+  --entrypoint apptainer \
+  "$IMAGE" "$@"
