@@ -57,7 +57,7 @@ apptainer run rhel9.sif
 The Apptainer version is pinned in `install.sh`:
 
 ```bash
-APPT_VER="1.5.1"
+APPT_VER="1.4.5"
 ```
 
 Change it and re-run `./install.sh` to upgrade. See available tags [here](https://github.com/apptainer/apptainer/pkgs/container/apptainer).

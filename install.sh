@@ -19,7 +19,7 @@
 set -euo pipefail
 
 # ----- config ----------------------------------------------------------------
-APPT_VER="1.5.1"
+APPT_VER="1.4.5"
 IMAGE="ghcr.io/apptainer/apptainer:${APPT_VER}"
 BIN_DIR="$HOME/.local/bin"
 WRAPPER="$BIN_DIR/apptainer"
