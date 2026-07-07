@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 #
-# apptainer wrapper for macOS using Docker Desktop or Colima
-# Runs the official Apptainer container so `apptainer` works on macOS
+# apptainer wrapper for macOS using Docker Desktop or Colima.
+# Runs the official Apptainer container so `apptainer` works on macOS.
 #
 set -euo pipefail
 
-PINNED_APPT_VER="__APPT_VER__"
+PINNED_APPT_VER="1.4.5"
 
 if [[ -n "${APPT_VER:-}" ]]; then
     APPTAINER_VERSION="${APPT_VER}"
 elif [[ -n "${APPT_VER_ENV:-}" ]]; then
     APPTAINER_VERSION="${APPT_VER_ENV}"
 elif [[ "${PINNED_APPT_VER}" == "__APPT_VER__" || -z "${PINNED_APPT_VER}" ]]; then
-    APPTAINER_VERSION="1.4.5"
+    APPTAINER_VERSION="${PINNED_APPT_VER}"
 else
     APPTAINER_VERSION="${PINNED_APPT_VER}"
 fi
@@ -45,7 +45,6 @@ start_colima() {
         sleep 2
     done
 
-    echo "Colima started, but Docker did not become ready." >&2
     return 1
 }
 
@@ -162,16 +161,8 @@ DOCKER_SOCK="$(docker_socket_path || true)"
 
 if [[ -z "${DOCKER_SOCK}" ]]; then
     echo "Could not find active Docker socket." >&2
-    echo "Docker is running, but the socket path could not be resolved." >&2
     exit 1
 fi
-
-USER_NAME="${USER:-$(id -un)}"
-
-export APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-/tmp/apptainer-tmp-${USER_NAME}}"
-export APPTAINER_CACHEDIR="${APPTAINER_CACHEDIR:-/tmp/apptainer-cache-${USER_NAME}}"
-
-mkdir -p "${APPTAINER_TMPDIR}" "${APPTAINER_CACHEDIR}"
 
 TTY_ARGS=()
 if [[ -t 0 && -t 1 ]]; then
@@ -180,15 +171,12 @@ fi
 
 HOST_MOUNTS=(
     -v /Users:/Users
-    -v /tmp:/tmp
     -v "${DOCKER_SOCK}":/var/run/docker.sock
     -w "$PWD"
 )
 
 exec docker run --rm "${TTY_ARGS[@]}" --privileged \
     -e DOCKER_HOST=unix:///var/run/docker.sock \
-    -e APPTAINER_TMPDIR="${APPTAINER_TMPDIR}" \
-    -e APPTAINER_CACHEDIR="${APPTAINER_CACHEDIR}" \
     "${HOST_MOUNTS[@]}" \
     --entrypoint apptainer \
     "${IMAGE}" "$@"
