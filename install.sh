@@ -31,20 +31,28 @@ brew_install_formula() {
 
 brew_install_cask() {
     local cask="$1"
+    local app_path="${2:-}"
 
     if brew list --cask --versions "$cask" >/dev/null 2>&1; then
-        echo "  $cask already installed; skipping."
+        echo "  $cask already installed through Homebrew; skipping."
+        return 0
+    fi
+
+    if [[ -n "${app_path}" && -d "${app_path}" ]]; then
+        echo "  Found existing app at ${app_path}; skipping Homebrew cask install for ${cask}."
+        echo "  To adopt it into Homebrew later, run:"
+        echo "     brew install --cask --adopt ${cask}"
         return 0
     fi
 
     echo "  Installing $cask ..."
-    brew install --cask "$cask" || brew install --cask --force "$cask" || return 1
+    brew install --cask "$cask" || return 1
 }
 
 install_docker_desktop() {
-    brew_install_cask docker-desktop || brew_install_cask docker || {
+    brew_install_cask docker-desktop "/Applications/Docker.app" || {
         echo "Failed to install Docker Desktop through Homebrew." >&2
-        echo "Install Docker Desktop manually from Docker, then re-run this script." >&2
+        echo "Install Docker Desktop manually, then re-run this script." >&2
         exit 1
     }
 }
@@ -126,12 +134,13 @@ if [[ -x /usr/local/bin/brew ]]; then
 fi
 
 # ----- 2) CLI and VM tooling -------------------------------------------------
-echo "Checking CLI and VM tooling..."
+echo "Checking CLI and VM tools..."
 brew_install_formula docker
 brew_install_formula docker-compose
 brew_install_formula colima
 brew_install_formula qemu
 brew_install_formula lima
+brew_install_formula jq
 brew_install_formula skopeo
 
 # ----- 3) Docker Desktop daemon ----------------------------------------------
