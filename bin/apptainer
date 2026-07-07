@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# apptainer wrapper for macOS using Docker Desktop
+# apptainer wrapper for macOS using Docker Desktop or Colima
 # Runs the official Apptainer container so `apptainer` works on macOS
 #
 set -euo pipefail
@@ -18,10 +18,35 @@ else
 fi
 
 IMAGE="ghcr.io/apptainer/apptainer:${APPTAINER_VERSION}"
+APPTAINER_DOCKER_BACKEND="${APPTAINER_DOCKER_BACKEND:-auto}"
 
 command -v docker >/dev/null 2>&1 || {
-    echo "Docker CLI not found. Install Docker Desktop or run install.sh." >&2
+    echo "Docker CLI not found. Install Docker Desktop, Colima, or run install.sh." >&2
     exit 127
+}
+
+start_colima() {
+    if ! command -v colima >/dev/null 2>&1; then
+        return 1
+    fi
+
+    if colima status >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo "Starting Colima Docker runtime..." >&2
+    colima start --runtime docker --activate >/dev/null
+
+    for _ in $(seq 1 60); do
+        if docker info >/dev/null 2>&1; then
+            return 0
+        fi
+
+        sleep 2
+    done
+
+    echo "Colima started, but Docker did not become ready." >&2
+    return 1
 }
 
 start_docker_desktop() {
@@ -30,19 +55,13 @@ start_docker_desktop() {
     fi
 
     if [[ ! -d "/Applications/Docker.app" ]]; then
-        echo "Docker Desktop is not installed at /Applications/Docker.app." >&2
-        echo "Install it with:" >&2
-        echo "  brew install --cask docker-desktop" >&2
-        exit 1
+        return 1
     fi
 
-    echo "Docker is not running. Launching /Applications/Docker.app..." >&2
-    open "/Applications/Docker.app" >/dev/null 2>&1 || {
-        echo "Failed to launch /Applications/Docker.app." >&2
-        exit 1
-    }
+    echo "Launching /Applications/Docker.app..." >&2
+    open "/Applications/Docker.app" >/dev/null 2>&1 || return 1
 
-    printf "Waiting for Docker daemon" >&2
+    printf "Waiting for Docker Desktop daemon" >&2
 
     for _ in $(seq 1 90); do
         if docker info >/dev/null 2>&1; then
@@ -55,12 +74,97 @@ start_docker_desktop() {
     done
 
     printf "\n" >&2
-    echo "Docker did not become ready." >&2
-    echo "Open Docker Desktop manually, accept any first-run prompts, then retry." >&2
-    exit 1
+    return 1
 }
 
-start_docker_desktop
+start_docker_backend() {
+    if docker info >/dev/null 2>&1; then
+        return 0
+    fi
+
+    case "${APPTAINER_DOCKER_BACKEND}" in
+        colima)
+            start_colima || {
+                echo "Could not start Colima." >&2
+                exit 1
+            }
+            ;;
+        docker-desktop)
+            start_docker_desktop || {
+                echo "Could not start Docker Desktop." >&2
+                echo "Open Docker Desktop manually, accept prompts, then retry." >&2
+                exit 1
+            }
+            ;;
+        auto)
+            start_colima || start_docker_desktop || {
+                echo "No Docker daemon became available." >&2
+                echo "Try one of:" >&2
+                echo "  colima start --runtime docker --activate" >&2
+                echo "  open /Applications/Docker.app" >&2
+                exit 1
+            }
+            ;;
+        *)
+            echo "Invalid APPTAINER_DOCKER_BACKEND: ${APPTAINER_DOCKER_BACKEND}" >&2
+            echo "Use: auto, colima, or docker-desktop." >&2
+            exit 1
+            ;;
+    esac
+}
+
+docker_socket_path() {
+    local context_name
+    local endpoint
+    local socket_path
+
+    context_name="$(docker context show 2>/dev/null || true)"
+
+    if [[ -n "${context_name}" ]]; then
+        endpoint="$(
+            docker context inspect "${context_name}" \
+                --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true
+        )"
+
+        case "${endpoint}" in
+            unix://*)
+                socket_path="${endpoint#unix://}"
+
+                if [[ -S "${socket_path}" ]]; then
+                    printf '%s\n' "${socket_path}"
+                    return 0
+                fi
+                ;;
+        esac
+    fi
+
+    if [[ -S "/var/run/docker.sock" ]]; then
+        printf '%s\n' "/var/run/docker.sock"
+        return 0
+    fi
+
+    if [[ -S "${HOME}/.docker/run/docker.sock" ]]; then
+        printf '%s\n' "${HOME}/.docker/run/docker.sock"
+        return 0
+    fi
+
+    if [[ -S "${HOME}/.colima/default/docker.sock" ]]; then
+        printf '%s\n' "${HOME}/.colima/default/docker.sock"
+        return 0
+    fi
+
+    return 1
+}
+
+start_docker_backend
+
+DOCKER_SOCK="$(docker_socket_path || true)"
+
+if [[ -z "${DOCKER_SOCK}" ]]; then
+    echo "Could not find active Docker socket." >&2
+    echo "Docker is running, but the socket path could not be resolved." >&2
+    exit 1
+fi
 
 USER_NAME="${USER:-$(id -un)}"
 
@@ -77,11 +181,12 @@ fi
 HOST_MOUNTS=(
     -v /Users:/Users
     -v /tmp:/tmp
+    -v "${DOCKER_SOCK}":/var/run/docker.sock
     -w "$PWD"
 )
 
 exec docker run --rm "${TTY_ARGS[@]}" --privileged \
-    -v /var/run/docker.sock:/var/run/docker.sock \
+    -e DOCKER_HOST=unix:///var/run/docker.sock \
     -e APPTAINER_TMPDIR="${APPTAINER_TMPDIR}" \
     -e APPTAINER_CACHEDIR="${APPTAINER_CACHEDIR}" \
     "${HOST_MOUNTS[@]}" \
