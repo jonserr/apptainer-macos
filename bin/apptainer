@@ -12,7 +12,7 @@ if [[ -n "${APPT_VER:-}" ]]; then
 elif [[ -n "${APPT_VER_ENV:-}" ]]; then
     APPTAINER_VERSION="${APPT_VER_ENV}"
 elif [[ "${PINNED_APPT_VER}" == "__APPT_VER__" || -z "${PINNED_APPT_VER}" ]]; then
-    APPTAINER_VERSION="1.5.1"
+    APPTAINER_VERSION="1.4.5"
 else
     APPTAINER_VERSION="${PINNED_APPT_VER}"
 fi
